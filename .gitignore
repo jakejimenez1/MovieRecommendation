@@ -1,0 +1,35 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Databases
+*.db
+movies.db
+recommendations.db
+tmdb_cache.db
+
+# Pickled models and encoders
+*.pkl
+model_svd.pkl
+encoders.pkl
+
+# TMDB full data files (if you want to ignore them)
+full_movies.csv
+full_ratings.csv
+
+# Environment variables
+.env
+
+# OS/system files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
