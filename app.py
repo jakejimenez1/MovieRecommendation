@@ -173,7 +173,7 @@ def get_recommendations_cached(user_id, rec_type="top", n=5):
         if conn:
             conn.close()
 
-## Generate recommendations
+## Generate top recommendations
 def get_top_n_recommendations(user_id, model_svd, df, movies_df, movie_encoder, n=5):
     ## Check cache first
     cached = get_recommendations_cached(user_id, "top", n)
@@ -214,6 +214,51 @@ def get_top_n_recommendations(user_id, model_svd, df, movies_df, movie_encoder, 
     
     ## Save to cache
     save_to_cache(user_id, results, "top")
+    
+    return results
+
+# Generate "movies to avoid" recommendations
+def get_bottom_n_recommendations(user_id, model_svd, df, movies_df, movie_encoder, n=5):
+    # Check cache first
+    cached = get_recommendations_cached(user_id, "bottom", n)
+    if cached:
+        return cached
+    
+    # Compute recommendations
+    user_movies = df[df['userId'] == user_id]['movieId'].unique()
+    all_movies = df['movieId'].unique()
+    movies_to_predict = list(set(all_movies) - set(user_movies))
+    
+    user_movie_pairs = [(user_id, movie_id, 0) for movie_id in movies_to_predict]
+    predictions_cf = model_svd.test(user_movie_pairs)
+    
+    # Get BOTTOM predictions (LOWEST ratings - No reverse = true)
+    bottom_n_recommendations = sorted(predictions_cf, key=lambda x: x.est)[:n]
+    
+    results = []
+    for pred in bottom_n_recommendations:
+        movie_id_encoded = int(pred.iid)
+        predicted_rating = pred.est
+        
+        movie_id_original = movie_encoder.inverse_transform([movie_id_encoded])[0]
+        movie_row = movies_df[movies_df['movieId'] == movie_id_original]
+        
+        if movie_row.empty:
+            continue
+        
+        title = movie_row['title'].values[0]
+        overview, poster_url = get_tmdb_info_cached(title, movie_id_original)
+        
+        results.append({
+            "movieId": movie_id_original,
+            "title": title,
+            "predicted_rating": predicted_rating,
+            "overview": overview,
+            "poster_url": poster_url
+        })
+    
+    # Save to cache
+    save_to_cache(user_id, results, "bottom")
     
     return results
 
@@ -279,7 +324,7 @@ def main():
     ## Recommendation type
     rec_type = st.sidebar.radio(
         "Recommendation Type",
-        options=["Top Picks", "Movies to Avoid"],
+        options=["Top Picks for You", "Movies to Avoid"],
         index=0
     )
     
@@ -334,15 +379,27 @@ def main():
                     cursor.execute('DELETE FROM user_recommendations WHERE user_id = ?', (user_id_encoded,))
                     conn.commit()
                     conn.close()
-                
-                recommendations = get_top_n_recommendations(
-                    user_id_encoded, 
-                    model_svd, 
-                    df, 
-                    movies_df, 
-                    movie_encoder, 
-                    n=n_recommendations
-                )
+                # Determine which type of recommendations to show
+                if rec_type == "Top Picks for You":
+                    recommendations = get_top_n_recommendations(
+                        user_id_encoded, 
+                        model_svd, 
+                        df, 
+                        movies_df, 
+                        movie_encoder, 
+                        n=n_recommendations
+                    )
+                    display_type = "Top Picks"
+                else:
+                    recommendations = get_bottom_n_recommendations(
+                        user_id_encoded, 
+                        model_svd, 
+                        df, 
+                        movies_df, 
+                        movie_encoder, 
+                        n=n_recommendations
+                    )
+                    display_type = "Movies to Avoid"
                 
                 if not recommendations:
                     st.warning("No recommendations found for this user.")
@@ -353,22 +410,38 @@ def main():
                 
                 for idx, movie in enumerate(recommendations, 1):
                     col_img, col_info = st.columns([1, 3])
-                    
+
+                    # Displays the movie poster if movie has one
                     with col_img:
                         if movie['poster_url']:
                             st.image(movie['poster_url'], use_container_width=True)
                         else:
                             st.image("https://via.placeholder.com/500x750?text=No+Poster", use_container_width=True)
                     
-                    with col_info:
-                        st.markdown(f"### {idx}. {movie['title']}")
-                        st.markdown(f"<span class='rating'>⭐ Predicted Rating: {movie['predicted_rating']:.2f}/5.0</span>", unsafe_allow_html=True)
-                        st.markdown(f"**Overview:** {movie['overview']}")
+                    st.markdown(f"### {idx}. {movie['title']}")
                         
-                        ## Genre/year info
-                        year = extract_year(movie['title'])
-                        if year:
-                            st.caption(f"📅 Released: {year}")
+                    # Show rating with color coding
+                    rating = movie['predicted_rating']
+                    if display_type == "Movies to Avoid":
+                        # Low ratings in red for movies to avoid
+                        rating_color = "#d00" if rating < 2.5 else "#f39c12"
+                        rating_emoji = "👎" if rating < 2.5 else "⚠️"
+                    else:
+                        # High ratings in green for recommendations
+                        rating_color = "#2ecc71" if rating >= 4.0 else "#f39c12"
+                        rating_emoji = "⭐" if rating >= 4.0 else "✨"
+                    
+                    st.markdown(
+                        f"<span style='color: {rating_color}; font-size: 18px;'>{rating_emoji} Predicted Rating: {rating:.2f}/5.0</span>", 
+                        unsafe_allow_html=True
+                    )
+                    
+                    st.markdown(f"**Overview:** {movie['overview']}")
+                    
+                    # Genre/year info
+                    year = extract_year(movie['title'])
+                    if year:
+                        st.caption(f"📅 Released: {year}")
                     
                     st.markdown("---")
                 

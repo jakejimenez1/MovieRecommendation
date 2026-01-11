@@ -3,7 +3,6 @@
 A personalized movie recommendation engine using collaborative filtering with SVD (Singular Value Decomposition), featuring real-time TMDB API integration and intelligent three-tier caching.
 
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 ## 📋 Table of Contents
 - [Features](#features)
